@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body, html {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      overflow: hidden;
+      position: relative;
+    }
+    #Graph {
+      height: 90%;
+      width: 100%;
+    }
+    #ExportButton {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+    }
+  </style>
+
+  <script src="//unpkg.com/three"></script>
+  <script src="//unpkg.com/3d-force-graph"></script>
+  <script src="//cdn.jsdelivr.net/npm/three/examples/js/exporters/GLTFExporter.js"></script>
+</head>
+
+<body>
+  <div id="Graph"></div>
+
+  <button id="ExportButton" onclick="exportGLTF()">Export as glTF</button>
+
+  <script>
+    let gData = null;
+    let graph = null;
+    let allTexturesLoaded = false;
+    let buttonInitialized = false;
+
+    function exportGLTF() {
+      if (!allTexturesLoaded) {
+        console.log("Textures are still loading...");
+        return;
+      }
+    
+      const exporter = new THREE.GLTFExporter();
+      const scene = new THREE.Scene();
+    
+      const images = [];
+      const textures = [];
+    
+      gData.nodes.forEach(node => {
+        const obj = graph.nodeThreeObject()(node);
+        if (obj) {
+          scene.add(obj);
+    
+          if (node.texture) {
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d");
+            canvas.width = node.texture.image.width;
+            canvas.height = node.texture.image.height;
+            context.drawImage(node.texture.image, 0, 0);
+            const dataURL = canvas.toDataURL("image/png");
+            const image = {
+              name: node.id + ".png",
+              dataURL: dataURL,
+            };
+            images.push(image);
+            textures.push(node.texture);
+          }
+        }
+      });
+    
+      const options = {
+        binary: true,
+        images: images,
+      };
+    
+      exporter.parse(
+        scene,
+        function (gltf) {
+          const gltfWithTextures = addTexturesToGLTF(gltf, textures);
+          const gltfString = JSON.stringify(gltfWithTextures, null, 2);
+    
+          const link = document.createElement("a");
+          const blob = new Blob([gltfString], { type: "application/octet-stream" });
+          link.href = URL.createObjectURL(blob);
+          link.download = "scene.gltf";
+          link.click();
+        },
+        options
+      );
+    }
+
+
+    function addTexturesToGLTF(gltf, textures) {
+      if (!gltf.images) {
+        gltf.images = [];
+      }
+    
+      if (!gltf.textures) {
+        gltf.textures = [];
+      }
+    
+      if (!gltf.bufferViews) {
+        gltf.bufferViews = [];
+      }
+    
+      if (!gltf.buffers) {
+        gltf.buffers = [];
+      }
+    
+      textures.forEach((texture, index) => {
+        const imageData = texture.image;
+        const dataURL = textures[index].image.src;
+        const imageIndex = gltf.images.findIndex(image => image.uri === dataURL);
+    
+        if (imageIndex !== -1) {
+          gltf.textures.push({
+            source: imageIndex,
+          });
+        } else {
+          const image = {
+            uri: `data:image/png;base64,${dataURL}`,
+            bufferView: gltf.bufferViews.length,
+          };
+    
+          const bufferView = {
+            buffer: 0,
+            byteOffset: 0,
+            byteLength: imageData.byteLength,
+          };
+    
+          gltf.images.push(image);
+          gltf.textures.push({
+            source: gltf.images.length - 1,
+          });
+          gltf.bufferViews.push(bufferView);
+          gltf.buffers.push({
+            byteLength: imageData.byteLength,
+            uri: null,
+          });
+        }
+      });
+    
+      return gltf;
+    }
+
+
+    
+    function dataURLToBuffer(dataURL) {
+      const base64String = dataURL.split(",")[1];
+      const byteCharacters = atob(base64String);
+      const byteNumbers = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      return byteNumbers.buffer;
+    }
+
+    function checkTexturesLoaded() {
+      const nodesWithTextures = gData.nodes.filter(node => node.texture);
+      if (nodesWithTextures.length === gData.nodes.length) {
+        allTexturesLoaded = true;
+        if (!buttonInitialized) {
+          buttonInitialized = true;
+          document.getElementById("ExportButton").style.display = "block";
+        }
+      }
+    }
+
+    // Load JSON data from file
+    fetch("data.json")
+      .then(response => response.json())
+      .then(data => {
+        gData = {
+          nodes: data.map(item => {
+            const imageName = item.image
+              ? item.image.split("/").pop()
+              : "";
+            const img = `imgs/circle/${
+              imageName || "placeholder.png"
+            }`;
+
+            return {
+              id: item.id,
+              img: img,
+              title: item.title,
+              slug: item.slug,
+              hyperfy_portals: item.hyperfy_portals || []
+            };
+          }),
+          links: []
+        };
+
+        gData.nodes.forEach(node => {
+          node.hyperfy_portals.forEach(portal => {
+            if (
+              typeof portal.url === "string" &&
+              portal.url.startsWith("/")
+            ) {
+              const targetSlug = portal.url.substring(1);
+              const targetNode = gData.nodes.find(
+                n => n.slug === targetSlug
+              );
+
+              if (targetNode) {
+                gData.links.push({
+                  source: node.id,
+                  target: targetNode.id
+                });
+              }
+            }
+          });
+        });
+
+        const loader = new THREE.TextureLoader();
+
+        const loadImages = (nodes, callback) => {
+          let loadedCount = 0;
+          nodes.forEach(node => {
+            loader.load(node.img, texture => {
+              node.texture = texture;
+
+              loadedCount++;
+              if (loadedCount === nodes.length) {
+                callback();
+              }
+            });
+          });
+        };
+
+        loadImages(gData.nodes, () => {
+          checkTexturesLoaded();
+
+          graph = ForceGraph3D()
+            (document.getElementById("Graph"))
+            .nodeThreeObject(({ texture }) => {
+              const material = new THREE.SpriteMaterial({ map: texture });
+              const sprite = new THREE.Sprite(material);
+              sprite.scale.set(12, 12);
+              return sprite;
+            })
+            .nodeLabel(({ title, slug }) => `Name: ${title || "N/A"} Slug: ${slug}`)
+            .onNodeHover(node => {
+              if (!node) {
+                document.body.style.cursor = "default";
+              } else {
+                document.body.style.cursor = "pointer";
+              }
+            });
+
+          graph.graphData(gData);
+        });
+      })
+      .catch(error => {
+        console.error("Error loading data:", error);
+      });
+  </script>
+</body>
+</html>

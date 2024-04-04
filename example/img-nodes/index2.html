@@ -1,0 +1,47 @@
+<head>
+  <style> body { margin: 0; } </style>
+
+  <script src="//unpkg.com/three"></script>
+  <script src="//unpkg.com/3d-force-graph"></script>
+</head>
+
+<body>
+  <div id="3d-graph"></div>
+
+  <script>
+    // Load JSON data from file
+    fetch('data.json')
+      .then(response => response.json())
+      .then(data => {
+        const nodes = data.map((item, id) => ({
+          id,
+          img: item.image || 'placeholder.jpg',
+          urls: item.hyperfy_portals
+            ? item.hyperfy_portals
+                .filter(portal => typeof portal.url === 'string' && portal.url.startsWith('/'))
+                .map(portal => `https://hyperfy.io${portal.url}`)
+            : []
+        }));
+
+        const gData = {
+          nodes,
+          links: []
+        };
+
+        const Graph = ForceGraph3D()
+          (document.getElementById('3d-graph'))
+          .nodeThreeObject(({ img }) => {
+            const imgTexture = new THREE.TextureLoader().load(`${img}`);
+            imgTexture.colorSpace = THREE.SRGBColorSpace;
+            const material = new THREE.SpriteMaterial({ map: imgTexture });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(12, 12);
+            return sprite;
+          })
+          .graphData(gData);
+      })
+      .catch(error => {
+        console.error('Error loading data:', error);
+      });
+  </script>
+</body>

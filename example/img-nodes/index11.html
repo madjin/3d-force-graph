@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body, html {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      overflow: hidden;
+      position: relative;
+    }
+    #Graph {
+      height: 90%;
+      width: 100%;
+    }
+    #ExportButton {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+    }
+  </style>
+
+  <script src="//unpkg.com/three"></script>
+  <script src="//unpkg.com/3d-force-graph"></script>
+  <script src="//cdn.jsdelivr.net/npm/three/examples/js/exporters/GLTFExporter.js"></script>
+</head>
+
+<body>
+  <div id="Graph"></div>
+
+  <button id="ExportButton" onclick="exportGLTF()">Export as glTF</button>
+
+  <script>
+    let gData = null;
+    let graph = null;
+    let allTexturesLoaded = false;
+    let buttonInitialized = false;
+
+    function exportGLTF() {
+      if (!allTexturesLoaded) {
+        console.log("Textures are still loading...");
+        return;
+      }
+
+      const exporter = new THREE.GLTFExporter();
+      const scene = new THREE.Scene();
+
+      gData.nodes.forEach(node => {
+        const obj = graph.nodeThreeObject()(node);
+        if (obj) {
+          scene.add(obj);
+        }
+      });
+
+      exporter.parse(
+        scene,
+        function (result) {
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(new Blob([JSON.stringify(result)], { type: 'application/octet-stream' }));
+          link.download = 'scene.gltf';
+          link.click();
+        },
+        { binary: false }
+      );
+    }
+
+    function checkTexturesLoaded() {
+      const nodesWithTextures = gData.nodes.filter(node => node.texture);
+      if (nodesWithTextures.length === gData.nodes.length) {
+        allTexturesLoaded = true;
+        if (!buttonInitialized) {
+          buttonInitialized = true;
+          document.getElementById('ExportButton').style.display = 'block';
+        }
+      }
+    }
+
+    // Load JSON data from file
+    fetch('data.json')
+      .then(response => response.json())
+      .then(data => {
+        gData = {
+          nodes: data.map(item => {
+            const imageName = item.image ? item.image.split('/').pop() : '';
+            const img = `imgs/circle/${imageName || 'placeholder.png'}`;
+
+            return {
+              id: item.id,
+              img: img,
+              title: item.title,
+              slug: item.slug,
+              hyperfy_portals: item.hyperfy_portals || []
+            };
+          }),
+          links: []
+        };
+
+        gData.nodes.forEach(node => {
+          node.hyperfy_portals.forEach(portal => {
+            if (typeof portal.url === 'string' && portal.url.startsWith('/')) {
+              const targetSlug = portal.url.substring(1);
+              const targetNode = gData.nodes.find(n => n.slug === targetSlug);
+
+              if (targetNode) {
+                gData.links.push({
+                  source: node.id,
+                  target: targetNode.id
+                });
+              }
+            }
+          });
+        });
+
+        const loader = new THREE.TextureLoader();
+        let loadedCount = 0;
+
+        const loadTextures = (nodes, callback) => {
+          nodes.forEach(node => {
+            loader.load(node.img, texture => {
+              node.texture = texture;
+
+              loadedCount++;
+              if (loadedCount === nodes.length) {
+                callback();
+              }
+            });
+          });
+        };
+
+        loadTextures(gData.nodes, () => {
+          checkTexturesLoaded();
+
+          graph = ForceGraph3D()
+            (document.getElementById('Graph'))
+            .nodeThreeObject(({ texture }) => {
+              const material = new THREE.SpriteMaterial({ map: texture });
+              const sprite = new THREE.Sprite(material);
+              sprite.scale.set(12, 12);
+              return sprite;
+            })
+            .nodeLabel(({ title, slug }) => `Name: ${title || 'N/A'} Slug: ${slug}`)
+            .onNodeHover(node => {
+              if (!node) {
+                document.body.style.cursor = 'default';
+              } else {
+                document.body.style.cursor = 'pointer';
+              }
+            });
+
+          graph.graphData(gData);
+        });
+      })
+      .catch(error => {
+        console.error('Error loading data:', error);
+      });
+  </script>
+</body>
+</html>

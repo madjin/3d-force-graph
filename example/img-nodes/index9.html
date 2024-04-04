@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body, html {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+    #Graph {
+      height: 90%;
+      width: 100%;
+    }
+  </style>
+
+  <script src="//unpkg.com/three"></script>
+  <script src="//unpkg.com/3d-force-graph"></script>
+  <script src="//cdn.jsdelivr.net/npm/three/examples/js/exporters/GLTFExporter.js"></script>
+</head>
+
+<body>
+  <div id="Graph"></div>
+
+  <button onclick="exportGLTF()">Export as glTF</button>
+
+  <script>
+    let gData;
+
+    function exportGLTF() {
+      const exporter = new THREE.GLTFExporter();
+      const graphElement = document.getElementById('Graph');
+      const scene = new THREE.Scene();
+    
+      // Add graph elements to the scene
+      const nodes = gData.nodes;
+      nodes.forEach(node => {
+        const obj = graphElement._forceGraph.nodeThreeObject()(node);
+        if (obj) {
+          scene.add(obj);
+        }
+      });
+    
+      exporter.parse(
+        scene,
+        function (result) {
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(new Blob([JSON.stringify(result)], { type: 'application/octet-stream' }));
+          link.download = 'scene.gltf';
+          link.click();
+        },
+        { binary: true }
+      );
+    }
+
+    // Load JSON data from file
+fetch('data.json')
+  .then(response => response.json())
+  .then(data => {
+    const nodes = data.map(item => {
+      const imageName = item.image ? item.image.split('/').pop() : '';
+      const img = `imgs/circle/${imageName || 'placeholder.png'}`;
+
+      return {
+        id: item.id,
+        img: img,
+        title: item.title,
+        slug: item.slug,
+        hyperfy_portals: item.hyperfy_portals || []
+      };
+    });
+
+    const links = [];
+
+    nodes.forEach(node => {
+      node.hyperfy_portals.forEach(portal => {
+        if (typeof portal.url === 'string' && portal.url.startsWith('/')) {
+          const targetSlug = portal.url.substring(1);
+          const targetNode = nodes.find(n => n.slug === targetSlug);
+
+          if (targetNode) {
+            links.push({
+              source: node.id,
+              target: targetNode.id
+            });
+          }
+        }
+      });
+    });
+
+    const gData = {
+      nodes,
+      links
+    };
+
+    const Graph = ForceGraph3D()
+      (document.getElementById('Graph'))
+      .graphData(gData)
+      .nodeThreeObject(({ img }) => {
+        const imgTexture = new THREE.TextureLoader().load(img);
+        imgTexture.encoding = THREE.sRGBEncoding;
+        const material = new THREE.SpriteMaterial({ map: imgTexture });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(12, 12);
+        return sprite;
+      })
+      .nodeLabel(({ title, slug }) => `Name: ${title || 'N/A'} Slug: ${slug}`)
+      .onNodeHover(node => {
+        if (!node) {
+          document.body.style.cursor = 'default';
+        } else {
+          document.body.style.cursor = 'pointer';
+        }
+      });
+  })
+  .catch(error => {
+    console.error('Error loading data:', error);
+  });
+
+  </script>
+</body>
+</html>

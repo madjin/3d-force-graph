@@ -1,0 +1,47 @@
+<script>
+  // Load JSON data from file
+  fetch('data.json')
+    .then(response => response.json())
+    .then(data => {
+      const nodes = data.map((item, id) => {
+        const hyperfyUrls = item.hyperfy_portals
+          ? item.hyperfy_portals
+              .filter(portal => typeof portal.url === 'string' && portal.url.startsWith('/'))
+              .map(portal => {
+                if (portal.url.startsWith('/')) {
+                  return `https://hyperfy.io${portal.url.substring(5)}`;
+                } else {
+                  return portal.url;
+                }
+              })
+          : [item.slug];
+
+        return {
+          id,
+          img: item.image || 'placeholder.jpg',
+          urls: hyperfyUrls
+        };
+      });
+
+      const gData = {
+        nodes,
+        links: nodes.flatMap((node, id) => node.urls.map(url => ({ source: id, target: nodes.findIndex(n => n.urls.includes(url)) })))
+      };
+
+      const Graph = ForceGraph3D()
+        (document.getElementById('3d-graph'))
+        .nodeThreeObject(({ img }) => {
+          const imgTexture = new THREE.TextureLoader().load(`./imgs/${img}`);
+          imgTexture.colorSpace = THREE.SRGBColorSpace;
+          const material = new THREE.SpriteMaterial({ map: imgTexture });
+          const sprite = new THREE.Sprite(material);
+          sprite.scale.set(12, 12);
+          return sprite;
+        })
+        .graphData(gData);
+    })
+    .catch(error => {
+      console.error('Error loading data:', error);
+    });
+</script>
+

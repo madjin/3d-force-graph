@@ -1,0 +1,66 @@
+<head>
+  <style>
+    body {
+      margin: 0;
+    }
+  </style>
+
+  <script src="//unpkg.com/three"></script>
+  <script src="//unpkg.com/3d-force-graph"></script>
+</head>
+
+<body>
+  <div id="3d-graph"></div>
+
+  <script>
+    // Load JSON data from file
+    fetch('data.json')
+      .then(response => response.json())
+      .then(data => {
+        const nodes = data.map(item => ({
+          id: item.id,
+          img: item.image || 'placeholder.png',
+          slug: item.slug,
+          hyperfy_portals: item.hyperfy_portals || []
+        }));
+
+        const links = [];
+
+        nodes.forEach(node => {
+          node.hyperfy_portals.forEach(portal => {
+            if (typeof portal.url === 'string' && portal.url.startsWith('/')) {
+              const targetSlug = portal.url.substring(1);
+              const targetNode = nodes.find(n => n.slug === targetSlug);
+
+              if (targetNode) {
+                links.push({
+                  source: node.id,
+                  target: targetNode.id
+                });
+              }
+            }
+          });
+        });
+
+        const gData = {
+          nodes,
+          links
+        };
+
+        const Graph = ForceGraph3D()
+          (document.getElementById('3d-graph'))
+          .nodeThreeObject(({ img }) => {
+            const imgTexture = new THREE.TextureLoader().load(`${img}`);
+            imgTexture.colorSpace = THREE.SRGBColorSpace;
+            const material = new THREE.SpriteMaterial({ map: imgTexture });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(12, 12);
+            return sprite;
+          })
+          .graphData(gData);
+      })
+      .catch(error => {
+        console.error('Error loading data:', error);
+      });
+  </script>
+</body>
